@@ -1,0 +1,160 @@
+services:
+  # --- Main Application Service ---
+  aac-pdns:
+    image: "pschiffe/pdns-admin:latest"
+    container_name: "aac-pdns"
+    hostname: "pdns-webui"
+    restart: "always"
+
+
+    environment:
+      PDNS_ADMIN_SQLA_DB_TYPE: "mysql"
+      PDNS_ADMIN_SQLA_DB_HOST: "aac-pdns-db"
+      PDNS_ADMIN_SQLA_DB_PORT: "3306"
+      PDNS_ADMIN_SQLA_DB_USER: "pdns"
+      PDNS_ADMIN_SQLA_DB_PASSWORD: "${PDNS_ADMIN_SQLA_DB_PASSWORD:?set PDNS_ADMIN_SQLA_DB_PASSWORD in .env (see .env.example)}"
+      PDNS_ADMIN_SQLA_DB_NAME: "pdns"
+      PDNS_API_URL: "http://aac-pdns-server:8081/"
+      PDNS_API_KEY: "${PDNS_API_KEY:?set PDNS_API_KEY in .env (see .env.example)}"
+      PDNS_VERSION: "4.9.3"
+      PDA_BIND_ADDRESS: "0.0.0.0"
+      PDA_BIND_PORT: "8080"
+      PDA_SECRET_KEY: "${PDA_SECRET_KEY:?set PDA_SECRET_KEY in .env (see .env.example)}"
+      PDA_SALT: "CHANGE_ME_IN_CONTROLLER"
+      PDA_PROXY: "True"
+      UPLOAD_FOLDER: "/opt/powerdns-admin/upload"
+
+    ports:
+      - "8882:8080/tcp"
+
+    volumes:
+      - "/export/docker/aac-pdns/upload:/opt/powerdns-admin/upload"
+
+    networks:
+      - exposed
+      - interconnect
+      - secured
+      - stack_internal
+
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.aac-pdns.rule: "Host(`pdns-webui.example.com`)"
+      traefik.http.routers.aac-pdns.entrypoints: "websecure"
+      traefik.http.routers.aac-pdns.tls: "true"
+      traefik.http.routers.aac-pdns.tls.certresolver: "ionos"
+      traefik.docker.network: "services-secured"
+      traefik.http.services.aac-pdns.loadbalancer.server.port: "8080"
+      traefik.http.services.aac-pdns.loadbalancer.server.scheme: "http"
+      auto-dns.createWildcard.aac-pdns: "true"
+      auto-dns.customDNS.aac-pdns: "true"
+      auto-dns.customDOMAIN.aac-pdns: "example.com"
+      auto-dns.customHost.aac-pdns: "pdns-webui"
+      homepage.group: "DNS - DHCP"
+      homepage.name: "PDNS Admin"
+      homepage.href: "https://pdns-webui.example.com"
+      homepage.icon: "mdi-dns-outline"
+      homepage.description: "PowerDNS Authoritative + Admin Web Interface"
+
+
+    depends_on:
+      aac-pdns-server:
+        condition: service_started
+      aac-pdns-db:
+        condition: service_healthy
+
+
+  # --- Service Dependencies (Sidecars) ---
+  aac-pdns-server:
+    image: "pschiffe/pdns-mysql:4.9"
+    container_name: "aac-pdns-server"
+    restart: "always"
+    
+
+
+    environment:
+      PDNS_gmysql_host: "aac-pdns-db"
+      PDNS_gmysql_port: "3306"
+      PDNS_gmysql_user: "pdns"
+      PDNS_gmysql_password: "${PDNS_gmysql_password:?set PDNS_gmysql_password in .env (see .env.example)}"
+      PDNS_gmysql_dbname: "pdns"
+      PDNS_api: "yes"
+      PDNS_api_key: "${PDNS_api_key:?set PDNS_api_key in .env (see .env.example)}"
+      PDNS_webserver: "yes"
+      PDNS_webserver-allow-from: "127.0.0.1,192.0.2.0/24"
+      PDNS_webserver_address: "0.0.0.0"
+      PDNS_webserver_password: "${PDNS_webserver_password:?set PDNS_webserver_password in .env (see .env.example)}"
+      PDNS_version_string: "anonymous"
+      PDNS_default_ttl: "600"
+      PDNS_allow_notify_from: "192.0.2.2,192.0.2.0/24"
+      PDNS_allow_axfr_ips: "192.0.2.2"
+      PDNS_also_notify: "192.0.2.10,192.0.2.20"
+      PDNS_primary: "yes"
+      PDNS_local_port: "53"
+      PDNS_default-ksk-algorithm: "ecdsa256"
+      PDNS_default-zsk-algorithm: "ecdsa256"
+      PDNS_dnssec-key-cache-ttl: "30"
+      PDNS_gmysql-dnssec: "yes"
+      PDNS_default-soa-content: "ns1.example.com. hostmaster.example.com. 2025061904 900 300 604800 60"
+
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "8081:8081/tcp"
+
+    volumes:
+      - "/export/docker/aac-pdns/keys:/var/lib/powerdns"
+
+    networks:
+      - stack_internal
+
+
+
+    hostname: aac-pdns-server
+
+
+  aac-pdns-db:
+    image: "mariadb:10.11"
+    container_name: "aac-pdns-db"
+    restart: "always"
+    
+
+    env_file:
+      - .env
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env (see .env.example)}"
+      MYSQL_DATABASE: "pdns"
+      MYSQL_USER: "pdns"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env (see .env.example)}"
+    volumes:
+      - "/export/docker/aac-pdns/db:/var/lib/mysql"
+
+    networks:
+      - stack_internal
+
+
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost --silent || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+    security_opt:
+    - apparmor:unconfined
+
+
+
+networks:
+  secured:
+    name: "services-secured"
+    external: true
+  exposed:
+    name: "services-exposed"
+    external: true
+  interconnect:
+    name: "docker-default"
+    external: true
+  stack_internal:
+    name: "aac-pdns_stack_internal"
+    driver: "bridge"
+

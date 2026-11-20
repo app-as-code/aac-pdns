@@ -1,0 +1,156 @@
+service:
+  name: aac-pdns
+  friendly_name: PDNS Admin
+  description: PowerDNS Authoritative + Admin Web Interface
+  category: DNS - DHCP
+  icon: mdi-dns-outline
+  stage: prod
+  hostname: pdns-webui
+  image_repo: pschiffe/pdns-admin
+  image_tag: latest
+config:
+  schema_version: 2
+  domain_name: example.com
+  generate_hostname: false
+  integrations:
+    homepage:
+      enabled: true
+    autodns:
+      enabled: true
+      create_wildcard: true
+    traefik:
+      enabled: true
+      internet_facing: false
+      cert_resolver: ionos
+      entrypoint: websecure
+      service_port: 8080
+vars:
+  TZ: Europe/Berlin
+  PDNS_DB_NAME: pdns
+  PDNS_DB_USER: pdns
+  PDNS_DB_HOST: aac-pdns-db
+  PDNS_DB_PORT: '3306'
+  PDNS_WEBSERVER_ALLOW_FROM: 127.0.0.1,192.0.2.0/24
+  PDNS_ALLOW_NOTIFY_FROM: 192.0.2.2,192.0.2.0/24
+  PDNS_ALLOW_AXFR_IPS: 192.0.2.2
+  PDNS_ALSO_NOTIFY: 192.0.2.10,192.0.2.20
+  PDNS_DEFAULT_SOA_CONTENT: ns1.example.com. hostmaster.example.com. 2025061904 900
+    300 604800 60
+secrets:
+  MYSQL_ROOT_PASSWORD: CHANGE_ME
+  PDNS_DB_PASSWORD: CHANGE_ME
+  PDNS_API_KEY: CHANGE_ME
+  PDNS_WEBSERVER_PASSWORD: CHANGE_ME
+  PDA_SECRET_KEY: CHANGE_ME
+  PDA_ADMIN_SALT: CHANGE_ME_IN_CONTROLLER
+deployments:
+  docker_compose:
+    restart_policy: always
+    host_base_path: /export/docker
+    environment:
+      PDNS_ADMIN_SQLA_DB_TYPE: mysql
+      PDNS_ADMIN_SQLA_DB_HOST: aac-pdns-db
+      PDNS_ADMIN_SQLA_DB_PORT: '3306'
+      PDNS_ADMIN_SQLA_DB_USER: '{{ vars.PDNS_DB_USER }}'
+      PDNS_ADMIN_SQLA_DB_PASSWORD: '{{ secrets.PDNS_DB_PASSWORD }}'
+      PDNS_ADMIN_SQLA_DB_NAME: '{{ vars.PDNS_DB_NAME }}'
+      PDNS_API_URL: http://aac-pdns-server:8081/
+      PDNS_API_KEY: '{{ secrets.PDNS_API_KEY }}'
+      PDNS_VERSION: 4.9.3
+      PDA_BIND_ADDRESS: 0.0.0.0
+      PDA_BIND_PORT: '8080'
+      PDA_SECRET_KEY: '{{ secrets.PDA_SECRET_KEY }}'
+      PDA_SALT: '{{ secrets.PDA_ADMIN_SALT }}'
+      PDA_PROXY: 'True'
+      UPLOAD_FOLDER: /opt/powerdns-admin/upload
+    volumes:
+    - upload:/opt/powerdns-admin/upload
+ports:
+- name: web
+  port: 8080
+  external_port: 8882
+  protocol: TCP
+volumes:
+  upload:
+    description: PowerDNS-Admin uploads
+dependencies:
+  server:
+    name: aac-pdns-server
+    hostname: aac-pdns-server
+    image_repo: pschiffe/pdns-mysql
+    image_tag: '4.9'
+    restart_policy: always
+    inherit_global_env: false
+    environment:
+      PDNS_gmysql_host: '{{ vars.PDNS_DB_HOST }}'
+      PDNS_gmysql_port: '{{ vars.PDNS_DB_PORT }}'
+      PDNS_gmysql_user: '{{ vars.PDNS_DB_USER }}'
+      PDNS_gmysql_password: '{{ secrets.PDNS_DB_PASSWORD }}'
+      PDNS_gmysql_dbname: '{{ vars.PDNS_DB_NAME }}'
+      PDNS_api: 'yes'
+      PDNS_api_key: '{{ secrets.PDNS_API_KEY }}'
+      PDNS_webserver: 'yes'
+      PDNS_webserver-allow-from: '{{ vars.PDNS_WEBSERVER_ALLOW_FROM }}'
+      PDNS_webserver_address: 0.0.0.0
+      PDNS_webserver_password: '{{ secrets.PDNS_WEBSERVER_PASSWORD }}'
+      PDNS_version_string: anonymous
+      PDNS_default_ttl: '600'
+      PDNS_allow_notify_from: '{{ vars.PDNS_ALLOW_NOTIFY_FROM }}'
+      PDNS_allow_axfr_ips: '{{ vars.PDNS_ALLOW_AXFR_IPS }}'
+      PDNS_also_notify: '{{ vars.PDNS_ALSO_NOTIFY }}'
+      PDNS_primary: 'yes'
+      PDNS_local_port: '53'
+      PDNS_default-ksk-algorithm: ecdsa256
+      PDNS_default-zsk-algorithm: ecdsa256
+      PDNS_dnssec-key-cache-ttl: '30'
+      PDNS_gmysql-dnssec: 'yes'
+      PDNS_default-soa-content: '{{ vars.PDNS_DEFAULT_SOA_CONTENT }}'
+    ports:
+    - name: dns-tcp
+      port: 53
+      external_port: 53
+      protocol: TCP
+      bind: host
+    - name: dns-udp
+      port: 53
+      external_port: 53
+      protocol: UDP
+      bind: host
+    - name: api
+      port: 8081
+      external_port: 8081
+      protocol: TCP
+    volumes:
+      keys:
+        target: /var/lib/powerdns
+  database:
+    import: catalog/mariadb.yml
+    overrides:
+      name: aac-pdns-db
+      image_tag: '10.11'
+      security_opt:
+      - apparmor:unconfined
+      environment:
+        MYSQL_ROOT_PASSWORD: '{{ secrets.MYSQL_ROOT_PASSWORD }}'
+        MYSQL_DATABASE: '{{ vars.PDNS_DB_NAME }}'
+        MYSQL_USER: '{{ vars.PDNS_DB_USER }}'
+        MYSQL_PASSWORD: '{{ secrets.PDNS_DB_PASSWORD }}'
+deployment_strategy:
+  main:
+    enabled: true
+    target_stage: prod
+  dev:
+    enabled: true
+    target_stage: dev
+  test:
+    enabled: false
+    target_stage: test
+  ansible-dev:
+    enabled: true
+    target_stage: dev
+  iac-dev:
+    enabled: true
+    target_stage: dev
+  template-dev:
+    enabled: true
+    target_stage: dev
